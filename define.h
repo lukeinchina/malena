@@ -1,0 +1,8 @@
+#ifndef MALENA_DEFINE_H
+#define MALENA_DEFINE_H
+
+#define MAX_TITLE_TERM_NUM 256
+#define MAX_TERM_NUM 65536
+#define MAX_TITLE_LEN 256
+
+#endif
