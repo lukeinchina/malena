@@ -129,8 +129,13 @@ ht_search(const NaiveHashTable *ht, uint64_t key) {
 }
 
 double
-cal_avg_load(const NaiveHashTable *ht) {
+ht_avg_load(const NaiveHashTable *ht) {
     return ht->item_count * 1.0 / ht->buckets_size;
+}
+
+unsigned long
+ht_item_count(const NaiveHashTable *ht) {
+    return ht->item_count;
 }
 
 /*------------------------- iterator operation ----------------------------*/

@@ -30,6 +30,9 @@ ht_lookup(const NaiveHashTable *ht, uint64_t key);
 const void *
 ht_search(const NaiveHashTable *ht, uint64_t key);
 
+unsigned long
+ht_item_count(const NaiveHashTable *ht);
+
 void
 ht_clear_items(NaiveHashTable *ht);
 
