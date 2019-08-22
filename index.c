@@ -75,7 +75,7 @@ typedef struct {
 }InvertListHead;
 
 int termid_cmp_inc(const void *left, const void *right) {
-    return ((termid_t)left < (termid_t)right) ? -1 : 1;
+    return (*(termid_t*)left < *(termid_t*)right) ? -1 : 1;
 }
 
 static
@@ -275,8 +275,8 @@ get_ht_keys(const NaiveHashTable *ht, size_t *size) {
 /*
  * @brief:  
  * 每个termid对应的临时倒排文件的二进制数据格式如下:(64bit system)
- * {8 byte}{4 byte} {4byte,  2byte }+, { {2byte}+, {2byte}+,...}  {8 byte}
- * termid, doc_num, {docid, occ_num}+, { { occ }+, { occ }+,...}, total_length
+ * {8 byte}{4 byte} {4byte}+, { {2 byte }{2byte}+ }+  { 8 byte }
+ * termid, doc_num, {docid}+, { {occ num}{ occ }+ }+, total_length
  *
  */
 static int
@@ -301,31 +301,39 @@ dump_temp_invert(NaiveHashTable *ht, const char *invert_path) {
 
     FILE *fp = fopen(invert_path, "w");
     assert(NULL != fp);
+    /* 文件头部记录termid的数据，无实际作用 */
+    fwrite(&array_size, sizeof(array_size), 1, fp);
 
     for (idx = 0; idx < array_size; idx++) {
         node = ht_lookup(ht, termid_array[idx]);
         list = (InvertListHead *)(node->val);
 
-        offset     = 0;
-        total_len  = 0;
         /* 1. termid和doc数目 */
-        total_len += fwrite(&(node->key), sizeof(node->key), 1, fp);
-        total_len += fwrite(&(list->size), sizeof(list->size), 1, fp);
+        fwrite(&(node->key), sizeof(node->key), 1, fp);
+        fwrite(&(list->size), sizeof(list->size), 1, fp);
 
+        total_len = sizeof(node->key) + sizeof(list->size);
+        offset    = 0;
         for (ptr = list->head; NULL != ptr; ptr = ptr->next) {
-            /* 2. docid + occ_num */
+            /* 2. docid */
             occ_head = (DocOcc *)(ptr->val);
-            total_len += fwrite(occ_head, sizeof(*occ_head), 1, fp);
+            fwrite(occ_head, sizeof(occ_head->docid), 1, fp);
+            total_len += sizeof(occ_head->docid);
 
             /* 先把位置信息拷贝到缓冲区中，后面一次性写入 */
             curr     = occ_buff + offset;
-            occ_byte = occ_head->count * sizeof(occ_t);
+            occ_byte = occ_head->count * sizeof(occ_t) + sizeof(occ_head->count);
             if ((offset + occ_byte) > max_size) {
                 max_size *= 2;
                 occ_buff  = realloc(occ_buff, max_size);
                 curr      = occ_buff + offset;
+                /* */
+                assert(offset + occ_byte < max_size);
             }
+            *(uint16_t*)curr = occ_head->count;
+            curr += sizeof(occ_head->count);
             memcpy(curr, occ_head->occs, occ_byte);
+
             offset += occ_byte;
         }
 

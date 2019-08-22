@@ -12,4 +12,13 @@ typedef uint64_t termid_t;
 /* term出现的位置. (occurrence), 也就是说最多有64k个字符 */
 typedef uint16_t occ_t;
 
+#pragma pack(4)
+typedef struct {
+    float idf;
+    int ndocids;   /* docid的偏移量*/
+    int noffsets;  /* offset的偏移量*/
+    int noccs;     /* occ的偏移量*/
+}InvertHead;
+#pragma pack()
+
 #endif
