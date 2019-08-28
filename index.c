@@ -4,12 +4,14 @@
 #include <ctype.h>
 #include <errno.h>
 #include <assert.h>
+#include <limits.h>
 
 #include "define.h"
 #include "type.h"
 #include "util.h"
 #include "log.h"
 #include "index.h"
+#include "merge.h"
 #include "naive_hash_table.h"
 
 
@@ -286,6 +288,8 @@ dump_temp_invert(NaiveHashTable *ht, const char *invert_path) {
     LinkedList     *ptr   = NULL;
     DocOcc   *occ_head    = NULL;
 
+    struct TempInvertHead inv_head;
+
     size_t max_size  = 128 * 1024 * 1024; /* 128M byte */
     size_t offset    = 0;
     size_t total_len = 0;
@@ -301,8 +305,10 @@ dump_temp_invert(NaiveHashTable *ht, const char *invert_path) {
 
     FILE *fp = fopen(invert_path, "w");
     assert(NULL != fp);
-    /* 文件头部记录termid的数据，无实际作用 */
-    fwrite(&array_size, sizeof(array_size), 1, fp);
+    /* 文件头部记录termid count，无实际作用 */
+    memset(&inv_head, sizeof(inv_head), 0);
+    inv_head.termid_num = array_size;
+    fwrite(&inv_head, sizeof(inv_head), 1, fp);
 
     for (idx = 0; idx < array_size; idx++) {
         node = ht_lookup(ht, termid_array[idx]);
@@ -395,18 +401,27 @@ append_into_index(NaiveHashTable *dst, NaiveHashTable *src, docid_t docid) {
     return 0;
 }
 
+char *
+create_temp_inv_path(char *path, size_t size, const char *inv_dir, int no) {
+    snprintf(path, size, "%s/%s.%03d", inv_dir, TEMP_INVERT_NAME, no);
+    return path;
+}
+
 int
 create_static_index(const char *seg_path, const char *invert_dir) {
-    char path[512];
+    char path[PATH_MAX];
     char buff[256];
     char title[4096];
     char content[65536];
     char err_msg[256];
-    Doc  one;
+    int  i;
     int  succ_count = 0;
-    int  count = 0;
-    int  no    = 0;
-    FILE *fd   = NULL;
+    int  count      = 0;
+    int  no         = 0;
+    FILE *fd        = NULL;
+    char **paths    = NULL;
+
+    Doc  one;
 
     NaiveHashTable *multi_doc_ht = ht_create(100000);
     NaiveHashTable *one_doc_ht   = ht_create(4000);
@@ -442,10 +457,8 @@ create_static_index(const char *seg_path, const char *invert_dir) {
         }
 
         /* 索引文档数目到阈值了，生成一次临时倒排文件写入磁盘 */
-        snprintf(path, sizeof(path), "%s/%s.%03d", invert_dir, 
-                       TEMP_INVERT_NAME, no);
+        create_temp_inv_path(path, sizeof(path), invert_dir, no++);
         dump_temp_invert(multi_doc_ht, path);
-        no++;
         /* 释放本批次的索引空间，为下次做准备  */
         free_doc_occ_in_ht(multi_doc_ht);
         ht_clear_items(multi_doc_ht);
@@ -455,14 +468,23 @@ create_static_index(const char *seg_path, const char *invert_dir) {
 
     /* 最后不满一批的数据。 */
     if (count % TEMP_INVERT_DOC_SIZE != 0) {
-        snprintf(path, sizeof(path), "%s/%s.%03d", invert_dir, 
-                       TEMP_INVERT_NAME, no);
+        create_temp_inv_path(path, sizeof(path), invert_dir, no++);
         dump_temp_invert(multi_doc_ht, path);
     }
     free_doc_occ_in_ht(multi_doc_ht);
     ht_clear_items(multi_doc_ht);
 
     /* 合并生成的临时倒排文件成一个最终的倒排 */
+    paths = (char **)malloc(sizeof(char *) * no);
+    for (i = 0; i < no; i++) {
+        paths[i] = (char *)malloc(sizeof(char) * PATH_MAX);
+        create_temp_inv_path(paths[i], PATH_MAX, invert_dir, i);
+    }
 
+    if (merge_temp_inverts(paths, no, invert_dir) != 0) {
+        LOG(LOG_FATAL, "merge temporary invert files failed\n");
+    }
+
+    LOG(LOG_INFO, "indexing finished\n");
     return 0;
 }

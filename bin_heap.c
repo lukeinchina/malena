@@ -5,7 +5,7 @@
 
 
 PriorityQueue pq_create(int max_size, int (*cmp)(const void *, const void*)) {
-    HeapElemType min = MinHeapElem;
+    HeapElemType min = HEAP_MIN;
 
     PriorityQueue h = (PriorityQueue)malloc(sizeof(struct HeapStruct));
     h->size         = 0;
@@ -44,7 +44,7 @@ int pq_insert(PriorityQueue h, HeapElemType e) {
 }
 
 HeapElemType pq_find_min(PriorityQueue h) {
-    HeapElemType e = MaxHeapElem;
+    HeapElemType e = HEAP_MAX;
     if (h->size < 1) {
         return e;
     }
@@ -53,7 +53,7 @@ HeapElemType pq_find_min(PriorityQueue h) {
 
 HeapElemType pq_delete_min(PriorityQueue h) {
     int i, child;
-    HeapElemType e = MaxHeapElem;
+    HeapElemType e = HEAP_MAX;
     if (h->size < 1) {
         return e;
     }

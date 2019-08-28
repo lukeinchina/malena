@@ -3,8 +3,8 @@
 
 #include <limits.h>
 
-#define MinHeapElem {NULL, 0, 0}
-#define MaxHeapElem {NULL, ULLONG_MAX, ULLONG_MAX}
+#define HEAP_MIN {NULL, 0, 0}
+#define HEAP_MAX {NULL, ULLONG_MAX, ULLONG_MAX}
 
 typedef struct {
     void *load;

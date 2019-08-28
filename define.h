@@ -12,6 +12,7 @@
 
 #define TEMP_INVERT_NAME "temp_invt"
 
-#define INVERT_NAME "invt"
+
+#define INVERT_NAME "invt.dat"
 
 #endif
