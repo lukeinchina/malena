@@ -11,8 +11,12 @@
 #define TEMP_INVERT_DOC_SIZE 1000
 
 #define TEMP_INVERT_NAME "temp_invt"
+#define INVERT_NAME      "invt.dat"
+#define META_NAME        "meta.dat"
 
-
-#define INVERT_NAME "invt.dat"
+typedef struct {
+    int doc_num;
+    int term_num;
+}Meta ;
 
 #endif

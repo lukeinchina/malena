@@ -401,10 +401,22 @@ append_into_index(NaiveHashTable *dst, NaiveHashTable *src, docid_t docid) {
     return 0;
 }
 
-char *
-create_temp_inv_path(char *path, size_t size, const char *inv_dir, int no) {
+static char *
+get_temp_inv_path(char *path, size_t size, const char *inv_dir, int no) {
     snprintf(path, size, "%s/%s.%03d", inv_dir, TEMP_INVERT_NAME, no);
     return path;
+}
+
+
+static int dump_meta_info(const Meta *meta, const char *path) {
+    FILE *fp = fopen(path, "w");
+    if (NULL == fp) {
+        return -1;
+    }
+    fprintf(fp, "doc num:%d\n", meta->doc_num);
+    fprintf(fp, "term num:%d\n", meta->term_num);
+    fclose(fp);
+    return 0;
 }
 
 int
@@ -415,6 +427,7 @@ create_static_index(const char *seg_path, const char *invert_dir) {
     char content[65536];
     char err_msg[256];
     int  i;
+    Meta meta       = {0, 0};
     int  succ_count = 0;
     int  count      = 0;
     int  no         = 0;
@@ -457,7 +470,7 @@ create_static_index(const char *seg_path, const char *invert_dir) {
         }
 
         /* 索引文档数目到阈值了，生成一次临时倒排文件写入磁盘 */
-        create_temp_inv_path(path, sizeof(path), invert_dir, no++);
+        get_temp_inv_path(path, sizeof(path), invert_dir, no++);
         dump_temp_invert(multi_doc_ht, path);
         /* 释放本批次的索引空间，为下次做准备  */
         free_doc_occ_in_ht(multi_doc_ht);
@@ -468,7 +481,7 @@ create_static_index(const char *seg_path, const char *invert_dir) {
 
     /* 最后不满一批的数据。 */
     if (count % TEMP_INVERT_DOC_SIZE != 0) {
-        create_temp_inv_path(path, sizeof(path), invert_dir, no++);
+        get_temp_inv_path(path, sizeof(path), invert_dir, no++);
         dump_temp_invert(multi_doc_ht, path);
     }
     free_doc_occ_in_ht(multi_doc_ht);
@@ -478,12 +491,17 @@ create_static_index(const char *seg_path, const char *invert_dir) {
     paths = (char **)malloc(sizeof(char *) * no);
     for (i = 0; i < no; i++) {
         paths[i] = (char *)malloc(sizeof(char) * PATH_MAX);
-        create_temp_inv_path(paths[i], PATH_MAX, invert_dir, i);
+        get_temp_inv_path(paths[i], PATH_MAX, invert_dir, i);
     }
 
-    if (merge_temp_inverts(paths, no, invert_dir) != 0) {
+    meta.term_num = merge_temp_inverts(paths, no, invert_dir);
+    if (meta.term_num < 0) {
         LOG(LOG_FATAL, "merge temporary invert files failed\n");
     }
+
+    meta.doc_num = count;
+    snprintf(path, sizeof(path), "%s/%s", invert_dir, META_NAME);
+    dump_meta_info(&meta, path);
 
     LOG(LOG_INFO, "indexing finished\n");
     return 0;

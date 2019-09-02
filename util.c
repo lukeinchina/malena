@@ -37,3 +37,6 @@ termid(const uint8_t *text, const uint8_t *end) {
 	memcpy(&id, digest, sizeof(id));
 	return id;
 }
+
+
+/* ---------------------------------------------------------- */

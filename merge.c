@@ -15,68 +15,45 @@
 #define IS_NE(e1, e2) ((e1).key1 != (e2).key1)
 #define IS_MIN(e) ((e).key1 == 0LLU)
 
-/*
- * 合并多个临时倒排后，一个termid所对应的docid和位置信息。
- * 统一存储，然后写入最终的倒排文件中。
- */
-typedef struct {
-    termid_t termid;
+static int term_inv_init(TermInvCell *inv) {
+    memset(inv, sizeof(*inv), 0);
 
-    uint32_t doc_size;
-    uint32_t doc_num;
-    docid_t  *doclist;
-    /* 记录每个docid内位置记录的开始地址/偏移量 */
-    uint32_t *occ_offsets;
-
-    /* 位置记录,格式为{{occ_num}{occ}+ }+ */
-    uint32_t occ_byte;
-    uint32_t occ_len;
-    uint8_t  *occ_buff;   
-
-    uint32_t  offset;
-
-}TermInvRecord;
-
-static int term_inv_init(TermInvRecord *rec) {
-    memset(rec, sizeof(*rec), 0);
-
-    rec->doc_size    = 1<<20; /* 按docic数目算 */
-    rec->occ_byte    = 8<<20; /* 按byte算. */
-    rec->doclist     = (docid_t *)malloc(sizeof(docid_t) * rec->doc_size);
-    rec->occ_offsets = (uint32_t *)malloc(sizeof(uint32_t) * rec->doc_size);
-    rec->occ_buff    = (uint8_t *)malloc(sizeof(uint8_t) * rec->occ_byte);
+    inv->doc_size    = 1<<20; /* 按docic数目算 */
+    inv->occ_byte    = 8<<20; /* 按byte算. */
+    inv->doclist     = (docid_t *)malloc(sizeof(docid_t) * inv->doc_size);
+    inv->occ_offsets = (uint32_t *)malloc(sizeof(uint32_t) * inv->doc_size);
+    inv->occ_buff    = (uint8_t *)malloc(sizeof(uint8_t) * inv->occ_byte);
 
     return 0;
 }
 
-static void term_inv_reset(TermInvRecord *rec, termid_t termid) {
-    rec->termid  = termid;
-    rec->doc_num = 0;
-    rec->occ_len = 0;
-    rec->offset  = 0;
+static void term_inv_reset(TermInvCell *inv, termid_t termid) {
+    inv->termid  = termid;
+    inv->doc_num = 0;
+    inv->occ_len = 0;
 }
 
-static void term_inv_del(TermInvRecord *rec) {
-    free(rec->doclist);
-    free(rec->occ_offsets);
-    free(rec->occ_buff);
-    memset(rec, sizeof(*rec), 0);
+static void term_inv_del(TermInvCell *inv) {
+    free(inv->doclist);
+    free(inv->occ_offsets);
+    free(inv->occ_buff);
+    memset(inv, sizeof(*inv), 0);
 }
 
-static int term_inv_expand_doc(TermInvRecord *rec) {
+static int term_inv_expand_doc(TermInvCell *inv) {
     size_t bytes; 
-    rec->doc_size   *= 2;
-    bytes            = rec->doc_size * sizeof(docid_t);
-    rec->doclist     = (docid_t *)realloc(rec->doclist, bytes);
-    bytes            = rec->doc_size * sizeof(uint32_t);
-    rec->occ_offsets = (uint32_t *)realloc(rec->occ_offsets, bytes);
+    inv->doc_size   *= 2;
+    bytes            = inv->doc_size * sizeof(docid_t);
+    inv->doclist     = (docid_t *)realloc(inv->doclist, bytes);
+    bytes            = inv->doc_size * sizeof(uint32_t);
+    inv->occ_offsets = (uint32_t *)realloc(inv->occ_offsets, bytes);
 
     return 0;
 }
 
-int term_inv_expand_occ(TermInvRecord *rec) {
-    rec->occ_byte *= 2;
-    rec->occ_buff   = (uint8_t *)realloc(rec->occ_buff, rec->occ_byte);
+int term_inv_expand_occ(TermInvCell *inv) {
+    inv->occ_byte *= 2;
+    inv->occ_buff   = (uint8_t *)realloc(inv->occ_buff, inv->occ_byte);
     return 0;
 }
 
@@ -121,11 +98,7 @@ static termid_t tv_load_termid(FILE *fp) {
     return id;
 }
 
-static int get_invert_path(char *path, size_t size, const char *invert_dir) {
-    return snprintf(path, size, "%s/%s", invert_dir, INVERT_NAME);
-}
-
-static int tv_load_term_inv(FILE *fp, TermInvRecord *rec) {
+static int tv_load_term_inv(FILE *fp, TermInvCell *inv) {
     int      i;
     int      doc_num = 0;
     uint16_t occ_num = 0;
@@ -136,28 +109,28 @@ static int tv_load_term_inv(FILE *fp, TermInvRecord *rec) {
     /* docid list */
     fread(&doc_num, sizeof(doc_num), 1, fp);
     /* buffer 不足时重新分配内存空间*/
-    while (rec->doc_num + doc_num > rec->doc_size) {
-        term_inv_expand_doc(rec);
+    while (inv->doc_num + doc_num > inv->doc_size) {
+        term_inv_expand_doc(inv);
     }
-    fread(rec->doclist + rec->doc_num, sizeof(docid_t), doc_num, fp);
-    rec->doc_num += doc_num;
+    fread(inv->doclist + inv->doc_num, sizeof(docid_t), doc_num, fp);
+    inv->doc_num += doc_num;
     offset += sizeof(doc_num) + sizeof(docid_t) * doc_num;
 
     /* occ list */
     for (i = 0; i < doc_num; i++) {
         /* save offsets */
-        rec->occ_offsets[rec->offset++] = rec->occ_len;
+        inv->occ_offsets[inv->doc_num++] = inv->occ_len;
 
         fread(&occ_num, sizeof(occ_num), 1, fp); 
         /* occ buffer 不足时重新分配内存空间*/
-        while ( (rec->occ_len + sizeof(occ_num) + sizeof(occ_t) * occ_num)
-                > rec->occ_byte) {
-            term_inv_expand_occ(rec);
+        while ( (inv->occ_len + sizeof(occ_num) + sizeof(occ_t) * occ_num)
+                > inv->occ_byte) {
+            term_inv_expand_occ(inv);
         }
-        memcpy(rec->occ_buff + rec->occ_len, &occ_num, sizeof(occ_num));
-        rec->occ_len += sizeof(occ_num);
-        fread(rec->occ_buff + rec->occ_len, sizeof(occ_t), occ_num, fp);
-        rec->occ_len += sizeof(occ_t) * occ_num;
+        memcpy(inv->occ_buff + inv->occ_len, &occ_num, sizeof(occ_num));
+        inv->occ_len += sizeof(occ_num);
+        fread(inv->occ_buff + inv->occ_len, sizeof(occ_t), occ_num, fp);
+        inv->occ_len += sizeof(occ_t) * occ_num;
 
         offset += sizeof(occ_num) + sizeof(occ_t) * occ_num;
     }
@@ -177,39 +150,42 @@ static int tv_load_term_inv(FILE *fp, TermInvRecord *rec) {
  *   | 4 byte|  |8 byte| | 4byte| | 4byte|+ |4 byte|+  
  *
  */
-static int term_inv_dump(TermInvRecord *rec, FILE *fp) {
+static int term_inv_dump(TermInvCell *inv, FILE *fp) {
     uint32_t total_byte = 0;
     total_byte += sizeof(termid_t);
     total_byte += sizeof(uint32_t);
-    total_byte += sizeof(docid_t) * rec->doc_num;
-    total_byte += sizeof(uint32_t) * rec->doc_num;
-    total_byte += rec->occ_len;
+    total_byte += sizeof(docid_t) * inv->doc_num;
+    total_byte += sizeof(uint32_t) * inv->doc_num;
+    total_byte += inv->occ_len;
 
     fwrite(&total_byte, sizeof(total_byte), 1, fp);
 
-    fwrite(&rec->termid, sizeof(termid_t), 1, fp);
-    fwrite(&rec->doc_num, sizeof(uint32_t), 1, fp);
-    fwrite(rec->doclist, sizeof(docid_t), rec->doc_num, fp);
-    fwrite(rec->occ_offsets, sizeof(uint32_t), rec->doc_num, fp);
-    fwrite(rec->occ_buff, 1, rec->occ_len, fp);
+    fwrite(&inv->termid, sizeof(termid_t), 1, fp);
+    fwrite(&inv->doc_num, sizeof(uint32_t), 1, fp);
+    fwrite(inv->doclist, sizeof(docid_t), inv->doc_num, fp);
+    fwrite(inv->occ_offsets, sizeof(uint32_t), inv->doc_num, fp);
+    fwrite(inv->occ_buff, 1, inv->occ_len, fp);
 
-    assert(rec->doc_num == rec->offset);
     return 0;
 }
 
+/*
+ * @return: total termid num.
+ */
 int multiway_merge_invert(PriorityQueue queue, const char *invert_dir) {
     FILE *fp;
     FILE *inv_fp;
     char path[PATH_MAX];
+    int  term_total   = 0;
 
     HeapElemType prev = HEAP_MIN;
     HeapElemType curr = HEAP_MIN;
     HeapElemType e;
 
-    TermInvRecord rec;
-    term_inv_init(&rec);
+    TermInvCell inv;
+    term_inv_init(&inv);
 
-    get_invert_path(path, sizeof(path), invert_dir);
+    snprintf(path, sizeof(path), "%s/%s", invert_dir, INVERT_NAME);
     inv_fp = fopen(path, "w");
     if (NULL == inv_fp) {
         LOG(LOG_FATAL, "open [%s] to write failed", path);
@@ -224,14 +200,15 @@ int multiway_merge_invert(PriorityQueue queue, const char *invert_dir) {
         }
 
         if (IS_MIN(prev)) {
-            term_inv_reset(&rec, curr.key1);
+            term_inv_reset(&inv, curr.key1);
         } else if (IS_NE(curr, prev)) {
-            term_inv_dump(&rec, inv_fp);
-            term_inv_reset(&rec, curr.key1);
+            term_inv_dump(&inv, inv_fp);
+            term_inv_reset(&inv, curr.key1);
+            term_total += 1;
         }
 
         fp = curr.load;
-        tv_load_term_inv(fp, &rec);
+        tv_load_term_inv(fp, &inv);
 
         /* 下一个元素入堆 */
         e = curr;
@@ -239,21 +216,26 @@ int multiway_merge_invert(PriorityQueue queue, const char *invert_dir) {
         pq_insert(queue, e);
     }
 
-    if (rec.doc_num > 0) {
-        term_inv_dump(&rec, inv_fp);
+    if (inv.doc_num > 0) {
+        term_inv_dump(&inv, inv_fp);
+        term_total += 1;
     }
 
     fclose(inv_fp);
-    term_inv_del(&rec);
-    return 0;
+    term_inv_del(&inv);
+    return term_total;
 }
 
+/*
+ * @breif: 多个临时倒排文件，合并成一个倒排文件。
+ * @return: total termid num
+ */
 int merge_temp_inverts(char **temp_inv_paths, size_t size,
         const char *invert_dir) {
-    FILE *fp = NULL;
+    FILE  *fp         = NULL;
+    size_t i          = 0;
+    int    term_total = -1;
     PriorityQueue queue;
-    size_t i;
-    int  err = 0;
     assert(size > 0);
 
     queue = pq_create(size, greater);
@@ -265,8 +247,7 @@ int merge_temp_inverts(char **temp_inv_paths, size_t size,
         assert(NULL != fp);
         if (tv_check_head(fp) != 0) {
             LOG(LOG_ERROR, "check temp invert [%s] failed", temp_inv_paths[i]);
-            err = -1;
-            break;
+            goto merge_end;
         }
         lines[i].load = fp;
         lines[i].key1 = tv_load_termid(fp);
@@ -274,16 +255,17 @@ int merge_temp_inverts(char **temp_inv_paths, size_t size,
 
         if (pq_insert(queue, lines[i]) != 0) {
             LOG(LOG_ERROR, "insert priority queue failed");
-            err = -1;
-            break;
+            goto merge_end;
         }
     }
 
     /* 多路归并，合并出最终的term对应的倒排 */
-    if (multiway_merge_invert(queue, invert_dir) != 0) {
+    term_total = multiway_merge_invert(queue, invert_dir);
+    if (term_total < 0) {
         LOG(LOG_ERROR, "mult-way merge failed");
-        err = -1;
     }
+
+merge_end:
 
     for (i = 0; i < size; i++) {
         fp = (FILE *)(lines[i].load);
@@ -294,5 +276,5 @@ int merge_temp_inverts(char **temp_inv_paths, size_t size,
     free(lines);
     pq_destory(queue);
 
-    return err;
+    return term_total;
 }
