@@ -119,7 +119,7 @@ static int tv_load_term_inv(FILE *fp, TermInvCell *inv) {
     /* occ list */
     for (i = 0; i < doc_num; i++) {
         /* save offsets */
-        inv->occ_offsets[inv->doc_num++] = inv->occ_len;
+        inv->occ_offsets[inv->doc_num + i] = inv->occ_len;
 
         fread(&occ_num, sizeof(occ_num), 1, fp); 
         /* occ buffer 不足时重新分配内存空间*/

@@ -10,9 +10,15 @@
 /* 多少个文档创建一个临时倒排文件*/
 #define TEMP_INVERT_DOC_SIZE 1000
 
+#define QUERY_TERM_MAX 256
+#define QUERY_LEN_MAX 256
+
 #define TEMP_INVERT_NAME "temp_invt"
 #define INVERT_NAME      "invt.dat"
 #define META_NAME        "meta.dat"
+
+/* 需要求交出来的docid数目，超过该值，不再继续进行求交集计算 */
+#define COMMON_DOCID_MAX 100
 
 typedef struct {
     int doc_num;
