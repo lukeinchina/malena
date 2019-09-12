@@ -222,21 +222,47 @@ int lower_bound(const docid_t *array, int left, int right, docid_t key)
     return left;
 }
 
-int common_by_traverse(const TermInvCell **term_invs, int size, 
+int common_by_traverse(const TermInvCell **terms, int size, 
         docid_t *dst, int dst_size)
 {
-    (void)term_invs;
-    (void)size;
-    (void)dst;
-    (void)dst_size;
-    int count = 0;
+    int i, count, off;
+    docid_t target;
+    uint32_t offsets[QUERY_TERM_MAX] = {0};
+    count = 0;
+    target = terms[0]->doclist[0];
+    while (count < dst_size) {
+        for (i = 0; i < size; ) {
+            while (offsets[i] < terms[i]->doc_num && terms[i]->doclist[offsets[i]] < target) {
+                offsets[i] += 1;
+            }
+            off = offsets[i];
+            if (off >= (int)terms[i]->doc_num) {
+                return count;
+            } else if (target != terms[i]->doclist[off]) {
+                /* 没有找到相同元素 */
+                target = terms[i]->doclist[off];
+                i = 0; /* rewind */
+            } else {
+                i += 1;
+            }
+        }
+        /* debug info */
+        assert(i == size);
+        for (i = 0; i < size; i++) {
+            assert(target == terms[i]->doclist[offsets[i]]);
+        }
+
+        dst[count++] = target;
+        target += 1;
+    }
+
     return count;
 }
 
 int common_by_bsearch(const TermInvCell **term_invs, int size, 
         docid_t *dst, int dst_size)
 {
-    int i, fin, count, off;
+    int i, count, off;
     docid_t target;
     const TermInvCell *terms[QUERY_TERM_MAX];
     int offsets[QUERY_TERM_MAX] = {0};
@@ -247,15 +273,13 @@ int common_by_bsearch(const TermInvCell **term_invs, int size,
     qsort(terms, size, sizeof(TermInvCell *), cmp_by_doc_num);
 
     count = 0;
-    fin   = 0;
     target = terms[0]->doclist[0];
     while (count < dst_size) {
         for (i = 0; i < size; ) {
             off = lower_bound(terms[i]->doclist, offsets[i], terms[i]->doc_num, target);
             offsets[i] = off;
             if (off >= (int)terms[i]->doc_num) {
-                fin = 1;
-                break;
+                return count;
             } else if (target != terms[i]->doclist[off]) {
                 /* 没有找到相同元素 */
                 target = terms[i]->doclist[off];
@@ -263,9 +287,6 @@ int common_by_bsearch(const TermInvCell **term_invs, int size,
             } else {
                 i += 1;
             }
-        }
-        if (fin) {
-            break;
         }
         /* debug info */
         assert(i == size);
@@ -299,7 +320,6 @@ int common_docs(const TermInvCell **term_invs, int size,
             min = term_invs[i]->doc_num;
         }
     }
-    return common_by_bsearch(term_invs, size, dst, dst_size);
     if (min < max / 10) {
         return common_by_bsearch(term_invs, size, dst, dst_size);
     } else {
